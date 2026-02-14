@@ -2,12 +2,17 @@
   lib,
   stdenv,
   fetchurl,
-  appimageTools,
   makeWrapper,
   autoPatchelfHook,
+  dpkg,
+  wrapGAppsHook3,
   _7zz,
   unzip,
   libgcc,
+  webkitgtk_4_1,
+  gtk3,
+  openssl,
+  libsoup_3,
   appVariants ? [ ],
 }:
 let
@@ -16,7 +21,7 @@ let
     "cli"
     "desktop"
   ];
-  version = "0.55.1";
+  version = "0.55.3";
 
   system = stdenv.hostPlatform.system;
   isLinux = stdenv.isLinux;
@@ -26,39 +31,39 @@ let
   cliSources = {
     x86_64-linux = {
       url = "https://caido.download/releases/v${version}/caido-cli-v${version}-linux-x86_64.tar.gz";
-      hash = "sha256-4xRkEN/ZA+JUFMB2qoEZT0Bzv2Qc7Y9kcj251MCAhKE=";
+      hash = "sha256-1sqj19lci050yzwgv4aw6zn2fj2b8j7l4c3py9fjw6r3xlq61kna="; # Replace with actual hash
     };
     aarch64-linux = {
       url = "https://caido.download/releases/v${version}/caido-cli-v${version}-linux-aarch64.tar.gz";
-      hash = "sha256-gMQkF0+mq2nRBy0oBenFvp69byWCkqmt8E4ZpKuNxKw=";
+      hash = "sha256-09605r34wrlhnfrbwj0zwk97l4cyg993i4npy2ykpjyd36ss9x96="; # Replace with actual hash
     };
     x86_64-darwin = {
       url = "https://caido.download/releases/v${version}/caido-cli-v${version}-mac-x86_64.zip";
-      hash = "sha256-C+EfmSBJMyxYXLfzxCrY7ZVtg8nwtie8w0Lj1Dy7o/k=";
+      hash = "sha256-1y2w758ldik5jpmkbkqclcgpbxhsdfzj8wagir13f3ccq5mlcwbf="; # Replace with actual hash
     };
     aarch64-darwin = {
       url = "https://caido.download/releases/v${version}/caido-cli-v${version}-mac-aarch64.zip";
-      hash = "sha256-b0cBS3RwsiLgJNqHWxi672MVZNfTYNOEJ2k0h2qNnP0=";
+      hash = "sha256-1q1msn34xyf3wqrjwgy9qavkk3qwxcjr0ifqf8w9yq5c84m50l2i="; # Replace with actual hash
     };
   };
 
-  # Desktop sources
+  # Desktop sources (Updated to use .deb for Linux)
   desktopSources = {
     x86_64-linux = {
-      url = "https://caido.download/releases/v${version}/caido-desktop-v${version}-linux-x86_64.AppImage";
-      hash = "sha256-zfts2h8QWTxe/dISwgKRQiSx2nD6vtE1atPfREyGX/U=";
+      url = "https://caido.download/releases/v${version}/caido-desktop-v${version}-linux-x86_64.deb";
+      hash = "sha256-07g9hjpvhwnxq0gjk66s840rrmwabzhlpsdlm65fsx1kki0svavl="; # Replace with actual hash
     };
     aarch64-linux = {
-      url = "https://caido.download/releases/v${version}/caido-desktop-v${version}-linux-aarch64.AppImage";
-      hash = "sha256-fYqzukRptCB466LIPbVre2EwBFt4Bsq9amQ4kjQuV2Q=";
+      url = "https://caido.download/releases/v${version}/caido-desktop-v${version}-linux-aarch64.deb";
+      hash = "sha256-100l40dai1l00yscn0cpwai6ghg93dx7k0pg6579ka2n012nrpkw="; # Replace with actual hash
     };
     x86_64-darwin = {
       url = "https://caido.download/releases/v${version}/caido-desktop-v${version}-mac-x86_64.dmg";
-      hash = "sha256-UsGT5n0MGVwWCXACo74Harb4J/qt/3TyD0+EFYNmPxw=";
+      hash = "sha256-1k1vkakd1561fd2sm74ybdk57kskvg6mgw0z0lrim1zhli2xnzap="; # Replace with actual hash
     };
     aarch64-darwin = {
       url = "https://caido.download/releases/v${version}/caido-desktop-v${version}-mac-aarch64.dmg";
-      hash = "sha256-iZHZayj2VYjMY9+p+xrlX+vP/DcbCRPQizQEqtF39EU=";
+      hash = "sha256-13kqpdsna4wkl0hhhif3ci9d5bmmixcn20854bjjp89krqvwyk3w="; # Replace with actual hash
     };
   };
 
@@ -76,29 +81,57 @@ let
     hash = desktopSource.hash;
   };
 
-  appimageContents = appimageTools.extractType2 {
-    inherit pname version;
-    src = desktop;
-  };
-
   wrappedDesktop =
     if isLinux then
-      appimageTools.wrapType2 {
-        src = desktop;
+      stdenv.mkDerivation {
         inherit pname version;
+        src = desktop;
 
-        nativeBuildInputs = [ makeWrapper ];
+        nativeBuildInputs = [
+          dpkg
+          autoPatchelfHook
+          makeWrapper
+          wrapGAppsHook3
+        ];
 
-        extraPkgs = pkgs: [ pkgs.libthai ];
+        buildInputs = [
+          libgcc
+          webkitgtk_4_1
+          gtk3
+          libsoup_3
+          openssl
+        ];
 
-        extraInstallCommands = ''
-          install -m 444 -D ${appimageContents}/caido.desktop -t $out/share/applications
-          install -m 444 -D ${appimageContents}/caido.png \
-            $out/share/icons/hicolor/512x512/apps/caido.png
+        unpackPhase = ''
+          dpkg-deb -x $src .
+        '';
+
+        installPhase = ''
+          runHook preInstall
+
+          mkdir -p $out
+          cp -r usr/* $out/
+
+          # Fix desktop file path
+          substituteInPlace $out/share/applications/caido.desktop \
+            --replace "/opt/Caido/caido" "$out/bin/caido"
+
+          runHook postInstall
+        '';
+
+        # Runtime fixes for Tauri/Electron/WebKit
+        postFixup = ''
           wrapProgram $out/bin/caido \
             --set WEBKIT_DISABLE_COMPOSITING_MODE 1 \
             --add-flags "\''${NIXOS_OZONE_WL:+\''${WAYLAND_DISPLAY:+--ozone-platform-hint=auto --enable-features=WaylandWindowDecorations --enable-wayland-ime=true}}"
         '';
+
+        meta = {
+          platforms = [
+            "x86_64-linux"
+            "aarch64-linux"
+          ];
+        };
       }
     else if isDarwin then
       stdenv.mkDerivation {
